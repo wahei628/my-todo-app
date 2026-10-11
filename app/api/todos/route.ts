@@ -1,7 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { errorResponse, todoSelect, toTodo, validateTitle } from "@/lib/todos";
+import {
+  errorResponse,
+  parseDueDate,
+  todoOrderBy,
+  todoSelect,
+  toTodo,
+  validateTitle,
+} from "@/lib/todos";
 
 // ---- API の型（画面側は import type で使う） ----
 
@@ -9,6 +16,7 @@ export type Todo = {
   id: string;
   title: string;
   isCompleted: boolean;
+  dueDate: string | null; // YYYY-MM-DD（期限なしは null）
   createdAt: string; // ISO 8601
 };
 
@@ -22,6 +30,7 @@ export type GetTodosResponse = {
 
 export type CreateTodoRequest = {
   title: string;
+  dueDate?: string | null; // YYYY-MM-DD
 };
 
 export type CreateTodoResponse = {
@@ -39,7 +48,7 @@ export async function GET() {
   const rows = await prisma.todo.findMany({
     where: { userId },
     select: todoSelect,
-    orderBy: { createdAt: "desc" },
+    orderBy: todoOrderBy,
   });
 
   return NextResponse.json<GetTodosResponse>({ todos: rows.map(toTodo) });
@@ -53,9 +62,9 @@ export async function POST(request: NextRequest) {
     return errorResponse("ログインが必要です", 401);
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | Partial<CreateTodoRequest>
-    | null;
+  const body = (await request
+    .json()
+    .catch(() => null)) as Partial<CreateTodoRequest> | null;
   const title = typeof body?.title === "string" ? body.title.trim() : "";
 
   const invalid = validateTitle(title);
@@ -63,8 +72,13 @@ export async function POST(request: NextRequest) {
     return errorResponse(invalid, 400);
   }
 
+  const dueDate = parseDueDate(body?.dueDate);
+  if (!dueDate.ok) {
+    return errorResponse(dueDate.error, 400);
+  }
+
   const row = await prisma.todo.create({
-    data: { userId, title },
+    data: { userId, title, dueDate: dueDate.value },
     select: todoSelect,
   });
 
