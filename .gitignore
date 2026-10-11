@@ -41,3 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
+
+# AI agent skills added by `prisma init` (kept locally, not tracked)
+/.agents/
+/.claude/
+/.windsurf/
+/skills-lock.json
