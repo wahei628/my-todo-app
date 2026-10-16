@@ -1,13 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { errorResponse, todoSelect, toTodo } from "@/lib/todos";
+import { errorResponse, parseDueDate, todoSelect, toTodo } from "@/lib/todos";
 import type { Todo } from "../route";
 
 // ---- API の型（画面側は import type で使う） ----
 
+// 変更したい項目だけを送る（どちらか 1 つ以上）
 export type UpdateTodoRequest = {
-  isCompleted: boolean;
+  isCompleted?: boolean;
+  dueDate?: string | null; // YYYY-MM-DD、null で期限なしにする
 };
 
 export type UpdateTodoResponse = {
@@ -21,7 +23,7 @@ export type DeleteTodoResponse = {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ---- PATCH /api/todos/:id : 完了状態を切り替え ----
+// ---- PATCH /api/todos/:id : 完了状態・期限日を変更 ----
 
 export async function PATCH(
   request: NextRequest,
@@ -37,17 +39,30 @@ export async function PATCH(
     return errorResponse("TODO が見つかりません", 404);
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | Partial<UpdateTodoRequest>
-    | null;
-  if (typeof body?.isCompleted !== "boolean") {
-    return errorResponse("isCompleted は true か false で指定してください", 400);
+  const body = (await request
+    .json()
+    .catch(() => null)) as Partial<UpdateTodoRequest> | null;
+  if (
+    body?.isCompleted !== undefined &&
+    typeof body.isCompleted !== "boolean"
+  ) {
+    return errorResponse(
+      "isCompleted は true か false で指定してください",
+      400,
+    );
+  }
+  const dueDate = parseDueDate(body?.dueDate);
+  if (!dueDate.ok) {
+    return errorResponse(dueDate.error, 400);
+  }
+  if (body?.isCompleted === undefined && dueDate.value === undefined) {
+    return errorResponse("isCompleted か dueDate を指定してください", 400);
   }
 
   // 他人の TODO を更新しないよう、id と user_id の両方で絞り込む
   const { count } = await prisma.todo.updateMany({
     where: { id, userId },
-    data: { isCompleted: body.isCompleted },
+    data: { isCompleted: body?.isCompleted, dueDate: dueDate.value },
   });
   if (count === 0) {
     return errorResponse("TODO が見つかりません", 404);
